@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- -windows por causa do GDI+ (BMP/GIF/TIFF) exigido pelo comando "imagem". -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PdfConverterToolkit.Cli</RootNamespace>
+    <AssemblyName>pdfconv</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PdfConverterToolkit.Core\PdfConverterToolkit.Core.csproj" />
+    <ProjectReference Include="..\PdfConverterToolkit.Docx\PdfConverterToolkit.Docx.csproj" />
+    <ProjectReference Include="..\PdfConverterToolkit.Imaging\PdfConverterToolkit.Imaging.csproj" />
+  </ItemGroup>
+
+</Project>

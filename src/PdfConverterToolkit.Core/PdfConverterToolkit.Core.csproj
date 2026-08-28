@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PdfConverterToolkit.Core</RootNamespace>
+    <AssemblyName>PdfConverterToolkit.Core</AssemblyName>
+    <!-- CA1416: o PDFium (PDFtoImage) cobre Windows/Linux/macOS/Android 31+; nao ha alvo fora disso. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Rasterizacao de paginas via PDFium: usada pelas tres conversoes. Traz SkiaSharp junto. -->
+    <PackageReference Include="PDFtoImage" Version="4.1.1" />
+  </ItemGroup>
+
+</Project>

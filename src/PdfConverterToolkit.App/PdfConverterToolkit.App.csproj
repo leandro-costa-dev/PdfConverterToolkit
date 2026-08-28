@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <RootNamespace>PdfConverterToolkit.App</RootNamespace>
+    <AssemblyName>PdfConverterToolkit</AssemblyName>
+    <ApplicationIcon Condition="Exists('pdf_filetype.ico')">pdf_filetype.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Icone embutido para a janela usar em alta resolucao (barra de titulo / tarefas). -->
+    <EmbeddedResource Include="pdf_filetype.ico" Condition="Exists('pdf_filetype.ico')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PdfConverterToolkit.Core\PdfConverterToolkit.Core.csproj" />
+    <ProjectReference Include="..\PdfConverterToolkit.Docx\PdfConverterToolkit.Docx.csproj" />
+    <ProjectReference Include="..\PdfConverterToolkit.Imaging\PdfConverterToolkit.Imaging.csproj" />
+  </ItemGroup>
+
+</Project>

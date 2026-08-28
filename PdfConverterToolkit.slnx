@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/PdfConverterToolkit.Core/PdfConverterToolkit.Core.csproj" />
+  <Project Path="src/PdfConverterToolkit.Docx/PdfConverterToolkit.Docx.csproj" />
+  <Project Path="src/PdfConverterToolkit.Imaging/PdfConverterToolkit.Imaging.csproj" />
+  <Project Path="src/PdfConverterToolkit.Cli/PdfConverterToolkit.Cli.csproj" />
+  <Project Path="src/PdfConverterToolkit.App/PdfConverterToolkit.App.csproj" />
+</Solution>
