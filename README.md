@@ -24,6 +24,9 @@ Nada precisa ser instalado além do .NET: todas as bibliotecas vêm por NuGet
 | **Página como imagem** | Cada página vira uma figura dentro do Word | Fidelidade visual total, inclusive assinaturas — sem texto editável |
 | **Imagem + texto** | Por página: a figura fiel e, abaixo, o texto editável daquela página | Quando você precisa das duas coisas |
 
+Nos três últimos — os modos rápidos — vários PDFs podem sair **num único `.docx`**, na ordem
+em que foram informados: **Arquivo único** na aba, `--arquivo-unico` na linha de comando.
+
 O modo fiel preserva:
 
 | Elemento | Como é reproduzido |
@@ -101,6 +104,18 @@ O modo escolhido decide quais opções valem: as caixas de reconstrução (tabel
 títulos, links, cabeçalhos) são do **layout fiel**; **DPI** e **qualidade** valem onde a
 página é rasterizada (nos modos de imagem e, no modo fiel, nas páginas sem texto).
 
+**Arquivo único** junta todos os PDFs da fila num só `.docx`, na ordem em que aparecem na
+lista — útil para montar um dossiê a partir de vários anexos digitalizados. Vale nos três
+modos rápidos (**Texto**, **Página como imagem** e **Imagem + texto**) e fica desabilitada no
+**layout fiel**, que sempre grava um `.docx` por PDF. O campo **Nome do arquivo** é preenchido
+sozinho com `<nome do primeiro PDF>_unificado.docx` e pode ser trocado; um nome com caracteres
+proibidos é corrigido em vez de recusado. Como o resultado é um arquivo só, ele não pode ficar
+"ao lado de cada PDF": sem pasta de saída escolhida, ele vai para a pasta do primeiro PDF.
+
+No arquivo único cada PDF começa em página nova e cada página mantém a orientação (retrato ou
+paisagem) que tinha no original. Um PDF ilegível — ou, no modo Texto, um sem camada de texto —
+é registrado no **Resultado** e apenas pulado; os demais continuam entrando no documento.
+
 ### Aba PDF → Imagem
 
 Deixe **Largura** e **Altura** em 0 para dimensionar pelo **DPI**. Com **Manter proporção**
@@ -144,8 +159,9 @@ Opções válidas em todos os comandos:
 
 | Opção | Efeito |
 | --- | --- |
-| `-o, --saida <arquivo.docx>` | Nome do arquivo de saída (apenas com um PDF de entrada) |
+| `-o, --saida <arquivo.docx>` | Nome do arquivo de saída (apenas com um PDF de entrada, ou com `--arquivo-unico`) |
 | `--modo <modo>` | `fiel` (padrão), `texto`, `imagem` ou `imagem-texto` |
+| `--arquivo-unico` | Juntar todos os PDFs num único `.docx`, na ordem informada (não vale no modo `fiel`) |
 | `--sem-tabelas` | Não reconstruir tabelas |
 | `--sem-tabelas-sem-borda` | Reconstruir apenas tabelas com linhas visíveis |
 | `--sem-imagens` | Não extrair imagens |
@@ -176,6 +192,7 @@ Opções válidas em todos os comandos:
 pdfconv edital.pdf
 pdfconv word "C:\Editais\*.pdf" -d "C:\Editais\Word" --limpar-cabecalhos
 pdfconv word contrato.pdf --modo imagem-texto --dpi 200
+pdfconv word "C:\Anexos" --modo imagem --arquivo-unico -o "C:\Anexos\dossie.docx"
 pdfconv imagem contrato.pdf --formato png --largura 1600
 pdfconv compactar "C:\Digitalizados" -r --dpi 100 --qualidade 50
 ```
@@ -195,9 +212,13 @@ var opcoes = new WordOptions { Mode = WordMode.Faithful, Dpi = 150 };
 var resultado = WordConverter.Convert("edital.pdf", "edital.docx", opcoes);
 Console.WriteLine($"{resultado.PageCount} páginas, {resultado.Details?.TableCount} tabelas");
 
-// PDF -> Word, lote
+// PDF -> Word, lote (um .docx por PDF)
 var relatorio = new BatchReport();
 WordConverter.ConvertBatch(["a.pdf", "b.pdf"], @"C:\Saida", opcoes, relatorio);
+
+// PDF -> Word, vários PDFs num único .docx (modos texto, imagem e imagem-texto)
+var unico = new WordOptions { Mode = WordMode.Image, Dpi = 150 };
+WordConverter.ConvertMerged(["a.pdf", "b.pdf"], @"C:\Saida\dossie.docx", unico, relatorio);
 
 // PDF -> imagens
 PdfImageExporter.ExportBatch(

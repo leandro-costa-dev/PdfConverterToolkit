@@ -14,6 +14,7 @@ internal static class WordCommand
         string? folder = null;
         bool overwrite = false;
         bool recursive = false;
+        bool single = false;
 
         while (reader.Next(out string arg))
         {
@@ -80,6 +81,10 @@ internal static class WordCommand
                     options.Conversion.ReflowText = false;
                     break;
 
+                case "--arquivo-unico":
+                    single = true;
+                    break;
+
                 case "--sobrescrever":
                     overwrite = true;
                     break;
@@ -103,11 +108,29 @@ internal static class WordCommand
 
         var report = new BatchReport();
 
-        if (output is { Length: > 0 })
+        if (single)
+        {
+            if (options.Mode == WordMode.Faithful)
+            {
+                throw new ArgumentException(
+                    "--arquivo-unico nao vale no modo fiel; use --modo texto, imagem ou imagem-texto.");
+            }
+
+            // Sem --saida o unificado se chama como o primeiro PDF, na pasta pedida (ou na dele).
+            string target = output is { Length: > 0 }
+                ? output
+                : Path.Combine(
+                    folder is { Length: > 0 } ? folder : Path.GetDirectoryName(Path.GetFullPath(pdfs[0]))!,
+                    WordConverter.SuggestMergedName(pdfs[0]));
+
+            WordConverter.ConvertMerged(pdfs, target, options, report, Program.Progress(), overwrite);
+        }
+        else if (output is { Length: > 0 })
         {
             if (pdfs.Count > 1)
             {
-                throw new ArgumentException("--saida vale para um PDF de entrada; para vários use --pasta.");
+                throw new ArgumentException(
+                    "--saida vale para um PDF de entrada; para vários use --pasta, ou --arquivo-unico para juntar todos.");
             }
 
             ConvertOne(pdfs[0], output, options, report, overwrite);

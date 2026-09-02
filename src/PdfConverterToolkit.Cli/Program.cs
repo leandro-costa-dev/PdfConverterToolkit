@@ -124,8 +124,11 @@ internal static class Program
               -h, --help                   Mostra esta ajuda.
 
             Opcoes de "word":
-              -o, --saida <arquivo.docx>   Nome do arquivo de saida (so com um PDF de entrada).
+              -o, --saida <arquivo.docx>   Nome do arquivo de saida (so com um PDF, ou com
+                                           --arquivo-unico).
                   --modo <modo>            fiel (padrao) | texto | imagem | imagem-texto.
+                  --arquivo-unico          Juntar todos os PDFs num unico .docx, na ordem
+                                           informada. Nao vale no modo fiel.
                   --sem-tabelas            Nao reconstruir tabelas.
                   --sem-tabelas-sem-borda  Reconstruir apenas tabelas com linhas visiveis.
                   --sem-imagens            Nao extrair imagens.
@@ -153,6 +156,7 @@ internal static class Program
               pdfconv edital.pdf
               pdfconv word "C:\\Editais\\*.pdf" -d "C:\\Editais\\Word" --limpar-cabecalhos
               pdfconv word contrato.pdf --modo imagem-texto --dpi 200
+              pdfconv word "C:\\Anexos" --modo imagem --arquivo-unico -o dossie.docx
               pdfconv imagem contrato.pdf --formato png --largura 1600
               pdfconv compactar "C:\\Digitalizados" -r --dpi 100 --qualidade 50
             """);

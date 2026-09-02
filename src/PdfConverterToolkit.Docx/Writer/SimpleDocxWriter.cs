@@ -1,13 +1,3 @@
-using DocumentFormat.OpenXml;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
-using PdfConverterToolkit.Core;
-using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
-using A = DocumentFormat.OpenXml.Drawing;
-using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
-using PIC = DocumentFormat.OpenXml.Drawing.Pictures;
-using PIG = UglyToad.PdfPig;
-
 namespace PdfConverterToolkit.Docx.Writer;
 
 /// <summary>
@@ -15,19 +5,12 @@ namespace PdfConverterToolkit.Docx.Writer;
 /// so texto, so imagem da pagina, ou os dois empilhados. Para texto editavel com a
 /// formatacao original use o motor fiel (<see cref="PdfDocxConverter"/>).
 ///
-/// Isolado num arquivo proprio para que os namespaces do OpenXML (que tem tipos como
-/// Font/Text) nao conflitem com o WinForms.
+/// Cada modo e um arquivo com um PDF so — o caso de uma unica chamada de <c>Append</c> em
+/// <see cref="SimpleDocxSession"/>, que e onde a escrita mora de verdade. Varios PDFs num
+/// unico .docx passam pela sessao direto (<see cref="WordConverter.ConvertMerged"/>).
 /// </summary>
 public static class SimpleDocxWriter
 {
-    private const double EmuPerInch = 914400.0;
-
-    // A4 retrato em twips (1 pol = 1440 twips): 210 x 297 mm.
-    private const long A4WidthTwips = 11906;
-    private const long A4HeightTwips = 16838;
-    private const long MarginTwips = 360;                  // 0,25 pol de margem em cada lado
-    private const double EmuPerTwip = EmuPerInch / 1440.0; // 635 EMU por twip
-
     /// <summary>
     /// Modo TEXTO: extrai o texto do PDF (PdfPig) para um .docx editavel.
     /// Retorna a quantidade de caracteres (nao-espaco) extraidos — 0 indica PDF sem
@@ -40,34 +23,9 @@ public static class SimpleDocxWriter
         Action<int>? onPageDone = null,
         CancellationToken cancellationToken = default)
     {
-        using var pig = OpenPdf(pdfBytes, password);
-        using var doc = WordprocessingDocument.Create(outPath, WordprocessingDocumentType.Document);
-        var main = doc.AddMainDocumentPart();
-        main.Document = new Document();
-        var body = main.Document.AppendChild(new Body());
-
-        int total = pig.NumberOfPages;
-        int chars = 0;
-        int n = 0;
-
-        foreach (var page in pig.GetPages())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            n++;
-
-            string text = ContentOrderTextExtractor.GetText(page) ?? string.Empty;
-            chars += text.Count(c => !char.IsWhiteSpace(c));
-            AppendText(body, text);
-
-            if (n < total)
-            {
-                body.AppendChild(new Paragraph(new Run(new Break() { Type = BreakValues.Page })));
-            }
-
-            onPageDone?.Invoke(n);
-        }
-
-        main.Document.Save();
+        using var session = new SimpleDocxSession(outPath);
+        int chars = session.AppendText(pdfBytes, password, onPageDone, cancellationToken);
+        session.Save();
         return chars;
     }
 
@@ -85,35 +43,9 @@ public static class SimpleDocxWriter
         Action<int>? onPageDone = null,
         CancellationToken cancellationToken = default)
     {
-        int pages = PdfPageCounter.Count(pdfBytes, password);
-
-        using var doc = WordprocessingDocument.Create(outPath, WordprocessingDocumentType.Document);
-        var main = doc.AddMainDocumentPart();
-        main.Document = new Document();
-        var body = main.Document.AppendChild(new Body());
-
-        bool lastLandscape = false;
-        for (int pg = 0; pg < pages; pg++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var raster = PdfRasterizer.RenderJpeg(pdfBytes, pg, dpi, quality, password);
-            bool landscape = raster.Width > raster.Height;
-            Run imageRun = BuildImageRun(main, raster, dpi, (uint)(pg + 1), landscape);
-
-            // Cada pagina e sua propria secao (para ter orientacao propria). Nas paginas que
-            // nao sao a ultima, a secao fecha dentro do proprio paragrafo da imagem.
-            Paragraph para = pg < pages - 1
-                ? new Paragraph(new ParagraphProperties(BuildSection(landscape)), imageRun)
-                : new Paragraph(imageRun);
-            body.AppendChild(para);
-
-            lastLandscape = landscape;
-            onPageDone?.Invoke(pg + 1);
-        }
-
-        body.AppendChild(BuildSection(lastLandscape)); // secao da ultima pagina (nivel do corpo)
-        main.Document.Save();
+        using var session = new SimpleDocxSession(outPath);
+        session.AppendImages(pdfBytes, dpi, quality, password, onPageDone, cancellationToken);
+        session.Save();
     }
 
     /// <summary>
@@ -131,152 +63,8 @@ public static class SimpleDocxWriter
         Action<int>? onPageDone = null,
         CancellationToken cancellationToken = default)
     {
-        using var pig = OpenPdf(pdfBytes, password);
-        using var doc = WordprocessingDocument.Create(outPath, WordprocessingDocumentType.Document);
-        var main = doc.AddMainDocumentPart();
-        main.Document = new Document();
-        var body = main.Document.AppendChild(new Body());
-
-        int pages = pig.NumberOfPages;
-        bool lastLandscape = false;
-        for (int pg = 1; pg <= pages; pg++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var raster = PdfRasterizer.RenderJpeg(pdfBytes, pg - 1, dpi, quality, password);
-            bool landscape = raster.Width > raster.Height;
-            body.AppendChild(new Paragraph(BuildImageRun(main, raster, dpi, (uint)pg, landscape)));
-
-            AppendText(body, ContentOrderTextExtractor.GetText(pig.GetPage(pg)) ?? string.Empty);
-
-            // Fecha a secao desta pagina (define orientacao e forca a proxima pagina).
-            if (pg < pages)
-            {
-                body.AppendChild(new Paragraph(new ParagraphProperties(BuildSection(landscape))));
-            }
-
-            lastLandscape = landscape;
-            onPageDone?.Invoke(pg);
-        }
-
-        body.AppendChild(BuildSection(lastLandscape)); // secao da ultima pagina (nivel do corpo)
-        main.Document.Save();
-    }
-
-    /// <summary>Abre o PDF com leitura tolerante — os mesmos ajustes do motor fiel.</summary>
-    private static PIG.PdfDocument OpenPdf(byte[] pdfBytes, string? password)
-    {
-        var parsing = new PIG.ParsingOptions
-        {
-            UseLenientParsing = true,
-            SkipMissingFonts = true,
-            ClipPaths = false,
-        };
-
-        if (!string.IsNullOrEmpty(password))
-        {
-            parsing.Password = password;
-        }
-
-        return PIG.PdfDocument.Open(pdfBytes, parsing);
-    }
-
-    /// <summary>Acrescenta o texto como paragrafos (uma linha por paragrafo).</summary>
-    private static void AppendText(Body body, string text)
-    {
-        foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
-        {
-            var run = new Run(new Text(line) { Space = SpaceProcessingModeValues.Preserve });
-            body.AppendChild(new Paragraph(run));
-        }
-    }
-
-    /// <summary>Secao A4 (retrato ou paisagem) com margens de 0,25 pol.</summary>
-    private static SectionProperties BuildSection(bool landscape)
-    {
-        uint w = (uint)(landscape ? A4HeightTwips : A4WidthTwips);
-        uint h = (uint)(landscape ? A4WidthTwips : A4HeightTwips);
-        return new SectionProperties(
-            new PageSize()
-            {
-                Width = w,
-                Height = h,
-                Orient = landscape ? PageOrientationValues.Landscape : PageOrientationValues.Portrait,
-            },
-            new PageMargin()
-            {
-                Top = (int)MarginTwips,
-                Right = (uint)MarginTwips,
-                Bottom = (int)MarginTwips,
-                Left = (uint)MarginTwips,
-                Header = 0U,
-                Footer = 0U,
-                Gutter = 0U,
-            });
-    }
-
-    /// <summary>Area util (folha menos as margens) em EMU, conforme a orientacao.</summary>
-    private static (long W, long H) PrintableEmu(bool landscape)
-    {
-        long pageW = landscape ? A4HeightTwips : A4WidthTwips;
-        long pageH = landscape ? A4WidthTwips : A4HeightTwips;
-        return ((long)((pageW - 2 * MarginTwips) * EmuPerTwip),
-                (long)((pageH - 2 * MarginTwips) * EmuPerTwip));
-    }
-
-    /// <summary>Cria o Run com a imagem escalada para caber na area util (proporcao preservada).</summary>
-    private static Run BuildImageRun(
-        MainDocumentPart main,
-        PdfRasterizer.RasterPage raster,
-        int dpi,
-        uint id,
-        bool landscape)
-    {
-        ImagePart imagePart = main.AddImagePart(ImagePartType.Jpeg);
-        using (var ms = new MemoryStream(raster.Data, 0, raster.Data.Length, writable: false, publiclyVisible: true))
-        {
-            ms.Position = 0;
-            imagePart.FeedData(ms);
-        }
-
-        string relId = main.GetIdOfPart(imagePart);
-
-        long emuW = (long)(raster.Width / (double)dpi * EmuPerInch);
-        long emuH = (long)(raster.Height / (double)dpi * EmuPerInch);
-
-        var (maxW, maxH) = PrintableEmu(landscape);
-        double scale = Math.Min(maxW / (double)emuW, maxH / (double)emuH);
-        emuW = Math.Max(1, (long)Math.Round(emuW * scale));
-        emuH = Math.Max(1, (long)Math.Round(emuH * scale));
-
-        var drawing = new Drawing(
-            new DW.Inline(
-                new DW.Extent() { Cx = emuW, Cy = emuH },
-                new DW.EffectExtent() { LeftEdge = 0L, TopEdge = 0L, RightEdge = 0L, BottomEdge = 0L },
-                new DW.DocProperties() { Id = id, Name = $"Pagina{id}" },
-                new A.Graphic(
-                    new A.GraphicData(
-                        new PIC.Picture(
-                            new PIC.NonVisualPictureProperties(
-                                new PIC.NonVisualDrawingProperties() { Id = id, Name = $"img{id}.jpg" },
-                                new PIC.NonVisualPictureDrawingProperties()),
-                            new PIC.BlipFill(
-                                new A.Blip() { Embed = relId },
-                                new A.Stretch(new A.FillRectangle())),
-                            new PIC.ShapeProperties(
-                                new A.Transform2D(
-                                    new A.Offset() { X = 0L, Y = 0L },
-                                    new A.Extents() { Cx = emuW, Cy = emuH }),
-                                new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle }))
-                    ) { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" })
-            )
-            {
-                DistanceFromTop = 0U,
-                DistanceFromBottom = 0U,
-                DistanceFromLeft = 0U,
-                DistanceFromRight = 0U,
-            });
-
-        return new Run(drawing);
+        using var session = new SimpleDocxSession(outPath);
+        session.AppendHybrid(pdfBytes, dpi, quality, password, onPageDone, cancellationToken);
+        session.Save();
     }
 }
