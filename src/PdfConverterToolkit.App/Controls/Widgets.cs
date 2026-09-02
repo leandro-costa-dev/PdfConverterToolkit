@@ -1,4 +1,4 @@
-namespace PdfConverterToolkit.App.Controls;
+﻿namespace PdfConverterToolkit.App.Controls;
 
 /// <summary>
 /// Pecas de interface repetidas nas tres abas. Tudo em TableLayoutPanel, que se comporta
@@ -172,13 +172,21 @@ internal static class Widgets
         return radio;
     }
 
-    /// <summary>Deslizador de qualidade JPEG com o valor exibido ao lado.</summary>
+    /// <summary>Altura real do deslizador de qualidade, ja contando a faixa de marcacoes.</summary>
+    public const int QualityHeight = 45;
+
+    /// <summary>
+    /// Deslizador de qualidade JPEG com o valor exibido ao lado. <c>AutoSize</c> desligado de
+    /// proposito: ligado, o TrackBar ignora a altura pedida e cresce sozinho, passando por cima
+    /// do que estiver logo abaixo dele.
+    /// </summary>
     public static TrackBar Quality(int value, int x, int y, int width, Label valueLabel)
     {
         var track = new TrackBar
         {
+            AutoSize = false,
             Location = new Point(x, y),
-            Size = new Size(width, 40),
+            Size = new Size(width, QualityHeight),
             Minimum = 1,
             Maximum = 100,
             TickFrequency = 10,

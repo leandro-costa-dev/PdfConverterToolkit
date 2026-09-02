@@ -1,14 +1,25 @@
-using PdfConverterToolkit.App.Controls;
+﻿using PdfConverterToolkit.App.Controls;
+using PdfConverterToolkit.Core;
 using PdfConverterToolkit.Docx;
 
 namespace PdfConverterToolkit.App.Tabs;
 
 /// <summary>
+/// O que a aba entrega ao lote. Juntar os PDFs num arquivo so e escolher o nome dele sao
+/// decisoes do lote, nao da conversao — por isso ficam aqui e nao em <see cref="WordOptions"/>.
+/// </summary>
+/// <param name="Word">Modo e ajustes da conversao.</param>
+/// <param name="SingleFile">Gravar um unico .docx com todos os PDFs da fila.</param>
+/// <param name="SingleFileName">Nome desse .docx unico, sem pasta.</param>
+internal sealed record WordBatchOptions(WordOptions Word, bool SingleFile, string SingleFileName);
+
+/// <summary>
 /// Aba PDF → Word. Reune os quatro modos num so lugar: o motor de layout fiel e os tres
 /// modos rapidos (texto, pagina como imagem, imagem + texto). As opcoes de reconstrucao
 /// valem apenas para o modo fiel; DPI e qualidade, apenas para os modos que rasterizam.
+/// Nos tres modos rapidos o lote pode sair num unico .docx.
 /// </summary>
-internal sealed class WordTab : ConverterTab<WordOptions>
+internal sealed class WordTab : ConverterTab<WordBatchOptions>
 {
     private readonly RadioButton modeFaithful = Widgets.Radio(
         "Layout fiel", 12, 24, true,
@@ -50,21 +61,30 @@ internal sealed class WordTab : ConverterTab<WordOptions>
     private readonly CheckBox reflow = Widgets.Check("Texto corrido (reflui ao editar)", 380, 96, true,
         "Desmarcado, cada linha do PDF vira uma linha fixa.");
 
+    private readonly CheckBox singleFile = Widgets.Check("Arquivo único (um só .docx)", 12, 122, false,
+        "Junta todos os PDFs da fila num unico .docx, na ordem da fila. Nao vale no Layout fiel.");
+
+    private readonly TextBox singleFileName = new() { Location = new Point(310, 118), Size = new Size(290, 24) };
+
     private readonly NumericUpDown dpi = Widgets.Numeric(36, 600, 150, 700, 22);
     private readonly Label qualityValue = Widgets.LabelAt("80", 810, 60);
     private readonly TrackBar quality;
-    private readonly TextBox password = new() { Location = new Point(700, 96), Size = new Size(180, 24), UseSystemPasswordChar = true };
+    private readonly TextBox password = new() { Location = new Point(700, 106), Size = new Size(180, 24), UseSystemPasswordChar = true };
 
     public WordTab()
     {
         quality = Widgets.Quality(80, 700, 54, 110, qualityValue);
         Build();
+        Queue.FilesAdded += (_, _) => SuggestSingleFileName();
         UpdateEnabled();
     }
 
     protected override string ActionLabel => "Converter para Word";
 
-    protected override int OptionsHeight => 150;
+    protected override int OptionsHeight => 178;
+
+    /// <summary>True quando o lote deve sair num unico .docx.</summary>
+    private bool MergeRequested => singleFile.Checked && !modeFaithful.Checked;
 
     protected override Control BuildOptions()
     {
@@ -75,9 +95,10 @@ internal sealed class WordTab : ConverterTab<WordOptions>
             modeFaithful, modeText, modeImage, modeHybrid,
             tables, borderlessTables, images, headings,
             links, rasterize, cleanHeaders, reflow,
+            singleFile, Widgets.LabelAt("Nome do arquivo:", 200, 124), singleFileName,
             Widgets.LabelAt("DPI:", 640, 26), dpi,
             Widgets.LabelAt("Qualidade:", 620, 60), quality, qualityValue,
-            Widgets.LabelAt("Senha:", 640, 100), password,
+            Widgets.LabelAt("Senha:", 640, 110), password,
         ]);
 
         foreach (RadioButton mode in new[] { modeFaithful, modeText, modeImage, modeHybrid })
@@ -86,6 +107,7 @@ internal sealed class WordTab : ConverterTab<WordOptions>
         }
 
         tables.CheckedChanged += (_, _) => UpdateEnabled();
+        singleFile.CheckedChanged += (_, _) => UpdateEnabled();
         return group;
     }
 
@@ -97,12 +119,35 @@ internal sealed class WordTab : ConverterTab<WordOptions>
         }
     }
 
-    protected override string RunBatch(WordOptions options, BatchContext context)
+    /// <summary>
+    /// Um arquivo unificado nao pode ficar "ao lado de cada PDF": sem pasta escolhida, ele vai
+    /// para a pasta do primeiro PDF (o mesmo criterio da aba de imagens).
+    /// </summary>
+    protected override string ResolveOutputDirectory(string chosen, string[] pdfs)
+        => chosen.Length > 0 || !MergeRequested
+            ? chosen
+            : Path.GetDirectoryName(Path.GetFullPath(pdfs[0]))!;
+
+    protected override string RunBatch(WordBatchOptions options, BatchContext context)
     {
+        if (options.SingleFile)
+        {
+            WordConverter.ConvertMerged(
+                context.Pdfs,
+                Path.Combine(context.OutputDirectory, options.SingleFileName),
+                options.Word,
+                context.Report,
+                context.Progress,
+                overwrite: false,
+                context.Token);
+
+            return $"{context.Report.Produced} arquivo .docx unificado gerado.";
+        }
+
         int produced = WordConverter.ConvertBatch(
             context.Pdfs,
             context.OutputDirectory,
-            options,
+            options.Word,
             context.Report,
             context.Progress,
             overwrite: false,
@@ -111,7 +156,7 @@ internal sealed class WordTab : ConverterTab<WordOptions>
         return $"{produced} arquivo(s) .docx gerado(s).";
     }
 
-    protected override WordOptions ReadOptions()
+    protected override WordBatchOptions ReadOptions()
     {
         var options = new WordOptions
         {
@@ -129,7 +174,33 @@ internal sealed class WordTab : ConverterTab<WordOptions>
         options.Conversion.RasterizeTextlessPages = rasterize.Checked;
         options.Conversion.RemoveRepeatedHeadersFooters = cleanHeaders.Checked;
         options.Conversion.ReflowText = reflow.Checked;
-        return options;
+        return new WordBatchOptions(options, MergeRequested, ResolveSingleFileName());
+    }
+
+    /// <summary>Sugere o nome do arquivo unico na primeira vez que a fila recebe PDFs.</summary>
+    private void SuggestSingleFileName()
+    {
+        string[] pdfs = Queue.Files;
+        if (pdfs.Length > 0 && singleFileName.Text.Trim().Length == 0)
+        {
+            singleFileName.Text = WordConverter.SuggestMergedName(pdfs[0]);
+        }
+    }
+
+    /// <summary>
+    /// O nome digitado, saneado. A leitura acontece depois de o usuario clicar em Converter e
+    /// nao ha como abortar o lote daqui, entao um nome impossivel e corrigido em vez de recusado.
+    /// </summary>
+    private string ResolveSingleFileName()
+    {
+        string name = OutputPath.SafeFileName(singleFileName.Text, ".docx");
+        if (name.Length > 0)
+        {
+            return name;
+        }
+
+        string[] pdfs = Queue.Files;
+        return pdfs.Length > 0 ? WordConverter.SuggestMergedName(pdfs[0]) : "PDFs_unificados.docx";
     }
 
     private WordMode SelectedMode()
@@ -157,5 +228,11 @@ internal sealed class WordTab : ConverterTab<WordOptions>
         dpi.Enabled = raster;
         quality.Enabled = raster;
         qualityValue.Enabled = raster;
+
+        // O arquivo unico vale nos tres modos rapidos; o fiel tem motor proprio, que grava um
+        // .docx por PDF. A caixa fica cinza sem ser desmarcada, para nao perder a intencao de
+        // quem so passou pelo modo fiel — ReadOptions a ignora enquanto ele estiver escolhido.
+        singleFile.Enabled = !faithful;
+        singleFileName.Enabled = !faithful && singleFile.Checked;
     }
 }

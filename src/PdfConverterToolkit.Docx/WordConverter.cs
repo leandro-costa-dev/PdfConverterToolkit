@@ -279,6 +279,171 @@ public static class WordConverter
         return report.Produced;
     }
 
+    /// <summary>Nome sugerido para o .docx unico: o nome do primeiro PDF + "_unificado".</summary>
+    public static string SuggestMergedName(string firstPdfPath)
+        => Path.GetFileNameWithoutExtension(firstPdfPath) + "_unificado.docx";
+
+    /// <summary>
+    /// Converte varios PDFs num unico .docx, na ordem da lista. Vale nos modos rapidos
+    /// (Texto, Imagem e Imagem + texto); o modo fiel tem motor proprio e nao e suportado.
+    /// Uma falha em um arquivo nao interrompe os demais: vai para o relatorio e o lote segue.
+    /// </summary>
+    /// <param name="docxPath">Arquivo unico a gravar.</param>
+    /// <param name="overwrite">Regrava por cima; sem isso o existente ganha sufixo " (1)".</param>
+    /// <returns>Quantos arquivos .docx foram gravados (0 ou 1).</returns>
+    /// <exception cref="ArgumentException">Modo fiel, que nao sabe acrescentar a um documento aberto.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// Cancelado no meio; o .docx com os PDFs ja acrescentados fica gravado.
+    /// </exception>
+    public static int ConvertMerged(
+        IReadOnlyList<string> pdfPaths,
+        string docxPath,
+        WordOptions options,
+        BatchReport report,
+        IProgress<BatchProgress>? progress = null,
+        bool overwrite = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pdfPaths);
+        ArgumentException.ThrowIfNullOrWhiteSpace(docxPath);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(report);
+
+        if (options.Mode == WordMode.Faithful)
+        {
+            throw new ArgumentException(
+                "O arquivo unico nao vale no modo Layout fiel; use Texto, Pagina como imagem ou Imagem + texto.");
+        }
+
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(docxPath));
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        string target = overwrite ? docxPath : OutputPath.EnsureUnique(docxPath);
+        string mergedName = Path.GetFileName(target);
+
+        int[] pageCounts = PdfPageCounter.CountAll(pdfPaths, report, out int totalPages, options.Password);
+        int totalSteps = Math.Max(1, totalPages);
+        string stage = options.Mode == WordMode.Text ? "Extraindo" : "Convertendo";
+
+        int merged = 0;
+        int done = 0;
+        bool saved = false;
+        bool cancelled = false;
+
+        try
+        {
+            using var session = new SimpleDocxSession(target);
+
+            for (int i = 0; i < pdfPaths.Count; i++)
+            {
+                string pdfPath = pdfPaths[i];
+                string name = Path.GetFileNameWithoutExtension(pdfPath);
+                int pages = pageCounts[i];
+                if (pages <= 0)
+                {
+                    continue;
+                }
+
+                int fileBase = done;
+                void OnPage(int page) => progress?.Report(new BatchProgress(
+                    fileBase + Math.Min(page, pages),
+                    totalSteps,
+                    $"{stage} {name} — pagina {page}/{pages}…"));
+
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Append(session, pdfPath, options, OnPage, cancellationToken);
+                    merged++;
+                    report.AddSummary($"{name}: {pages} pagina(s) acrescentada(s).");
+                }
+                catch (OperationCanceledException)
+                {
+                    // O que ja foi acrescentado e valido: para o lote e grava o que existe.
+                    cancelled = true;
+                    break;
+                }
+                catch (MissingTextLayerException ex)
+                {
+                    report.AddError(ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    report.AddError(name, ex);
+                }
+
+                done += pages;
+            }
+
+            if (!session.IsEmpty)
+            {
+                session.Save();
+                saved = true;
+            }
+        }
+        catch (Exception)
+        {
+            // Um .docx aberto e nunca gravado nao serve para nada: sai do disco antes de propagar.
+            Delete(target);
+            throw;
+        }
+
+        if (!saved)
+        {
+            Delete(target);
+            report.AddError($"{mergedName}: nenhum PDF pôde ser acrescentado — arquivo único não gerado.");
+            return report.Produced;
+        }
+
+        report.Produced++;
+        report.AddSummary($"{mergedName}: {merged} PDF(s) unificado(s) → {FileSize.OfFile(target)}.");
+        progress?.Report(new BatchProgress(totalSteps, totalSteps, "Finalizando…"));
+
+        if (cancelled)
+        {
+            report.AddSummary($"{mergedName}: aviso — cancelado, o arquivo tem so os {merged} primeiro(s) PDF(s).");
+            throw new OperationCanceledException(cancellationToken);
+        }
+
+        return report.Produced;
+    }
+
+    /// <summary>Acrescenta um PDF a sessao, no modo pedido.</summary>
+    /// <exception cref="MissingTextLayerException">Modo Texto num PDF sem texto extraivel.</exception>
+    private static void Append(
+        SimpleDocxSession session,
+        string pdfPath,
+        WordOptions options,
+        Action<int> onPage,
+        CancellationToken cancellationToken)
+    {
+        byte[] bytes = File.ReadAllBytes(pdfPath);
+
+        switch (options.Mode)
+        {
+            case WordMode.Image:
+                session.AppendImages(
+                    bytes, options.Dpi, options.Quality, options.Password, onPage, cancellationToken);
+                break;
+
+            case WordMode.Hybrid:
+                session.AppendHybrid(
+                    bytes, options.Dpi, options.Quality, options.Password, onPage, cancellationToken);
+                break;
+
+            default:
+                if (session.AppendText(bytes, options.Password, onPage, cancellationToken) == 0)
+                {
+                    throw new MissingTextLayerException(Path.GetFileName(pdfPath));
+                }
+
+                break;
+        }
+    }
+
     private static void Delete(string path)
     {
         try

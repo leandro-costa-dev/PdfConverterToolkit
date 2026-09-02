@@ -1,4 +1,4 @@
-using PdfConverterToolkit.App.Controls;
+﻿using PdfConverterToolkit.App.Controls;
 using PdfConverterToolkit.Imaging;
 
 namespace PdfConverterToolkit.App.Tabs;
@@ -15,7 +15,7 @@ internal sealed class CompressTab : ConverterTab<CompressionOptions>
     private readonly CheckBox skipIfLarger = Widgets.Check("Pular se não reduzir o tamanho", 12, 72, true,
         "Descarta o resultado quando ele fica maior que o original.");
 
-    private readonly TextBox password = new() { Location = new Point(380, 68), Size = new Size(160, 24), UseSystemPasswordChar = true };
+    private readonly TextBox password = new() { Location = new Point(718, 28), Size = new Size(150, 24), UseSystemPasswordChar = true };
 
     public CompressTab()
     {
@@ -36,7 +36,7 @@ internal sealed class CompressTab : ConverterTab<CompressionOptions>
             Widgets.LabelAt("Resolução (DPI):", 12, 32), dpi,
             Widgets.LabelAt("Qualidade (JPEG):", 260, 32), quality, qualityValue,
             skipIfLarger,
-            Widgets.LabelAt("Senha:", 320, 72), password,
+            Widgets.LabelAt("Senha:", 668, 32), password,
             Widgets.HintAt(
                 "As páginas são rasterizadas (o texto vira imagem) e remontadas num novo PDF. Ideal para " +
                 "PDFs digitalizados / com muitas imagens. PDFs só de texto tendem a aumentar de tamanho — " +
